@@ -1,4 +1,4 @@
-# sqltocsv [![Build Status](https://travis-ci.org/joho/sqltocsv.svg?branch=master)](https://travis-ci.org/joho/sqltocsv)
+# sql2csv
 
 A library designed to let you easily turn any arbitrary sql.Rows result from a query into a CSV file with a minimum of fuss. Remember to handle your errors and close your rows (not demonstrated in every example).
 
@@ -10,7 +10,7 @@ Importing the package
 import (
     "database/sql"
     _ "github.com/go-sql-driver/mysql" // or the driver of your choice
-    "github.com/joho/sqltocsv"
+    "github.com/datatug/sql2csv"
 )
 ```
 
@@ -20,7 +20,7 @@ Dumping a query to a file
 // we're assuming you've setup your sql.DB etc elsewhere
 rows, _ := db.Query("SELECT * FROM users WHERE something=72")
 
-err := sqltocsv.WriteFile("~/important_user_report.csv", rows)
+err := sql2csv.WriteFile("~/important_user_report.csv", rows)
 if err != nil {
     panic(err)
 }
@@ -40,7 +40,7 @@ http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-type", "text/csv")
     w.Header().Set("Content-Disposition", "attachment; filename=\"report.csv\"")
 
-    sqltocsv.Write(w, rows)
+    sql2csv.Write(w, rows)
 })
 http.ListenAndServe(":8080", nil)
 ```
@@ -50,7 +50,7 @@ http.ListenAndServe(":8080", nil)
 ```go
 rows, _ := db.Query("SELECT * FROM users WHERE something=72")
 
-csvConverter := sqltocsv.New(rows)
+csvConverter := sql2csv.New(rows)
 
 csvConverter.TimeFormat = time.RFC822
 csvConverter.Headers = append(rows.Columns(), "extra_column_one", "extra_column_two")
@@ -73,7 +73,7 @@ csvConverter.SetRowPreProcessor(func (columns []string) (bool, []string) {
 csvConverter.WriteFile("~/important_user_report.csv")
 ```
 
-For more details on what else you can do to the `Converter` see the [sqltocsv godocs](http://godoc.org/github.com/joho/sqltocsv)
+For more details on what else you can do to the `Converter` see the [sql2csv godocs](http://godoc.org/github.com/joho/sql2csv)
 
 ## License
 

@@ -1,8 +1,8 @@
-// sqltocsv is a package to make it dead easy to turn arbitrary database query
+// sql2csv is a package to make it dead easy to turn arbitrary database query
 // results (in the form of database/sql Rows) into CSV output.
 //
-// Source and README at https://github.com/joho/sqltocsv
-package sqltocsv
+// Source and README at https://github.com/datatug/sql2csv
+package sql2csv
 
 import (
 	"bytes"
@@ -61,11 +61,11 @@ func (c *Converter) SetRowPreProcessor(processor CsvPreProcessorFunc) {
 
 // String returns the CSV as a string in an fmt package friendly way
 func (c Converter) String() string {
-	csv, err := c.WriteString()
+	s, err := c.WriteString()
 	if err != nil {
 		return ""
 	}
-	return csv
+	return s
 }
 
 // WriteString returns the CSV as a string and an error if something goes wrong
@@ -84,7 +84,7 @@ func (c Converter) WriteFile(csvFileName string) error {
 
 	err = c.Write(f)
 	if err != nil {
-		f.Close() // close, but only return/handle the write error
+		_ = f.Close() // close, but only return/handle the write error
 		return err
 	}
 
@@ -127,7 +127,7 @@ func (c Converter) Write(writer io.Writer) error {
 	for rows.Next() {
 		row := make([]string, count)
 
-		for i, _ := range columnNames {
+		for i := range columnNames {
 			valuePtrs[i] = &values[i]
 		}
 
@@ -135,7 +135,7 @@ func (c Converter) Write(writer io.Writer) error {
 			return err
 		}
 
-		for i, _ := range columnNames {
+		for i := range columnNames {
 			var value interface{}
 			rawValue := values[i]
 
@@ -146,9 +146,10 @@ func (c Converter) Write(writer io.Writer) error {
 				value = rawValue
 			}
 
-			timeValue, ok := value.(time.Time)
-			if ok && c.TimeFormat != "" {
-				value = timeValue.Format(c.TimeFormat)
+			if c.TimeFormat != "" {
+				if timeValue, ok := value.(time.Time); ok {
+					value = timeValue.Format(c.TimeFormat)
+				}
 			}
 
 			if value == nil {

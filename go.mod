@@ -1,4 +1,4 @@
-module sql2csv
+module github.com/datatug/sql2csv
 
 go 1.15
 

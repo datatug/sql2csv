@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"io/ioutil"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,7 +16,7 @@ func init() {
 
 func TestWriteFile(t *testing.T) {
 	checkQueryAgainstResult(t, func(rows *sql.Rows) string {
-		testCsvFileName := "/tmp/test.csv"
+		testCsvFileName := os.TempDir() + "/github.com-datatug-sql2csv-test.csv"
 		err := WriteFile(testCsvFileName, rows)
 		if err != nil {
 			t.Fatalf("error in WriteCsvToFile: %v", err)
@@ -77,10 +78,10 @@ func TestSetHeaders(t *testing.T) {
 	assertCsvMatch(t, expected, actual)
 }
 
-func TestSetRowPreProcessorModifyingRows(t *testing.T) {
+func TestSetRowPostProcessorModifyingRows(t *testing.T) {
 	converter := getConverter(t)
 
-	converter.SetRowPreProcessor(func(rows []string, columnNames []string) (bool, []string) {
+	converter.SetRowPostProcessor(func(rows []string, columnTypes []*sql.ColumnType) (bool, []string) {
 		return true, []string{rows[0], "X", "X"}
 	})
 
@@ -90,10 +91,10 @@ func TestSetRowPreProcessorModifyingRows(t *testing.T) {
 	assertCsvMatch(t, expected, actual)
 }
 
-func TestSetRowPreProcessorOmittingRows(t *testing.T) {
+func TestSetRowPostProcessorOmittingRows(t *testing.T) {
 	converter := getConverter(t)
 
-	converter.SetRowPreProcessor(func(rows []string, columnNames []string) (bool, []string) {
+	converter.SetRowPostProcessor(func(rows []string, columnTypes []*sql.ColumnType) (bool, []string) {
 		return false, []string{}
 	})
 
@@ -116,7 +117,7 @@ func TestSetTimeFormat(t *testing.T) {
 }
 
 func TestConvertingNilValueShouldReturnEmptyString(t *testing.T) {
-	converter := New(getTestRowsByQuery(t, "SELECT|people|name,nickname,age|"))
+	converter := NewConverter(getTestRowsByQuery(t, "SELECT|people|name,nickname,age|"))
 
 	expected := "name,nickname,age\nAlice,,1\n"
 	actual := converter.String()
@@ -173,7 +174,7 @@ func getTestRowsByQuery(t *testing.T, query string) *sql.Rows {
 }
 
 func getConverter(t *testing.T) *Converter {
-	return New(getTestRows(t))
+	return NewConverter(getTestRows(t))
 }
 
 func setupDatabase(t *testing.T) *sql.DB {
@@ -196,6 +197,7 @@ func exec(t testing.TB, db *sql.DB, query string, args ...interface{}) {
 
 func assertCsvMatch(t *testing.T, expected string, actual string) {
 	t.Helper()
+	actual = strings.Replace(actual, " +0000 GMT", " +0000 UTC", -1) // TODO: Fix it: https://github.com/datatug/sql2csv/issues/1
 	if actual != expected {
 		t.Errorf("Expected CSV:\n\n%v\n Got CSV:\n\n%v\n", expected, actual)
 	}

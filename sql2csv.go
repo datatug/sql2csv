@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"fmt"
+	"github.com/google/uuid"
 	"io"
 	"os"
 	"time"
@@ -18,28 +19,28 @@ import (
 // based on whatever is in the sql.Rows you pass in. It calls WriteCsvToWriter under
 // the hood.
 func WriteFile(csvFileName string, rows *sql.Rows) error {
-	return New(rows).WriteFile(csvFileName)
+	return NewConverter(rows).WriteFile(csvFileName)
 }
 
 // WriteString will return a string of the CSV. Don't use this unless you've
 // got a small data set or a lot of memory
 func WriteString(rows *sql.Rows) (string, error) {
-	return New(rows).WriteString()
+	return NewConverter(rows).WriteString()
 }
 
 // Write will write a CSV file to the writer passed in (with headers)
 // based on whatever is in the sql.Rows you pass in.
 func Write(writer io.Writer, rows *sql.Rows) error {
-	return New(rows).Write(writer)
+	return NewConverter(rows).Write(writer)
 }
 
-// CsvPreprocessorFunc is a function type for preprocessing your CSV.
+// CsvRowPostProcessorFunc is a function type for postprocessing your CSV.
 // It takes the columns after they've been munged into strings but
 // before they've been passed into the CSV writer.
 //
 // Return an outputRow of false if you want the row skipped otherwise
 // return the processed Row slice as you want it written to the CSV.
-type CsvPreProcessorFunc func(row []string, columnNames []string) (outputRow bool, processedRow []string)
+type CsvRowPostProcessorFunc func(row []string, columnTypes []*sql.ColumnType) (outputRow bool, processedRow []string)
 
 // Converter does the actual work of converting the rows to CSV.
 // There are a few settings you can override if you want to do
@@ -50,13 +51,13 @@ type Converter struct {
 	TimeFormat   string   // Format string for any time.Time values (default is time's default)
 	Delimiter    rune     // Delimiter to use in your CSV (default is comma)
 
-	rows            *sql.Rows
-	rowPreProcessor CsvPreProcessorFunc
+	rows             *sql.Rows
+	rowPostProcessor CsvRowPostProcessorFunc
 }
 
-// SetRowPreProcessor lets you specify a CsvPreprocessorFunc for this conversion
-func (c *Converter) SetRowPreProcessor(processor CsvPreProcessorFunc) {
-	c.rowPreProcessor = processor
+// SetRowPostProcessor lets you specify a CsvRowPostProcessorFunc for this conversion
+func (c *Converter) SetRowPostProcessor(processor CsvRowPostProcessorFunc) {
+	c.rowPostProcessor = processor
 }
 
 // String returns the CSV as a string in an fmt package friendly way
@@ -99,7 +100,7 @@ func (c Converter) Write(writer io.Writer) error {
 		csvWriter.Comma = c.Delimiter
 	}
 
-	columnNames, err := rows.Columns()
+	columns, err := rows.ColumnTypes()
 	if err != nil {
 		return err
 	}
@@ -111,6 +112,10 @@ func (c Converter) Write(writer io.Writer) error {
 		if len(c.Headers) > 0 {
 			headers = c.Headers
 		} else {
+			columnNames := make([]string, len(columns))
+			for i, col := range columns {
+				columnNames[i] = col.Name()
+			}
 			headers = columnNames
 		}
 		err = csvWriter.Write(headers)
@@ -120,48 +125,52 @@ func (c Converter) Write(writer io.Writer) error {
 		}
 	}
 
-	count := len(columnNames)
+	count := len(columns)
 	values := make([]interface{}, count)
-	valuePtrs := make([]interface{}, count)
+	valPointers := make([]interface{}, count)
 
 	for rows.Next() {
 		row := make([]string, count)
 
-		for i := range columnNames {
-			valuePtrs[i] = &values[i]
+		for i := range columns {
+			valPointers[i] = &values[i]
 		}
 
-		if err = rows.Scan(valuePtrs...); err != nil {
+		if err = rows.Scan(valPointers...); err != nil {
 			return err
 		}
 
-		for i := range columnNames {
-			var value interface{}
-			rawValue := values[i]
-
-			byteArray, ok := rawValue.([]byte)
-			if ok {
-				value = string(byteArray)
-			} else {
-				value = rawValue
-			}
-
-			if c.TimeFormat != "" {
-				if timeValue, ok := value.(time.Time); ok {
-					value = timeValue.Format(c.TimeFormat)
+		for i, column := range columns {
+			if b, isSliceOfBytes := values[i].([]byte); isSliceOfBytes {
+				switch column.DatabaseTypeName() {
+				case "UNIQUEIDENTIFIER":
+					var v uuid.UUID
+					if v, err = uuid.FromBytes(b); err != nil {
+						return err
+					}
+					row[i] = v.String()
+				default:
+					row[i] = string(b)
 				}
-			}
-
-			if value == nil {
-				row[i] = ""
 			} else {
-				row[i] = fmt.Sprintf("%v", value)
+				var value interface{}
+				value = values[i]
+				if c.TimeFormat != "" {
+					if timeValue, ok := value.(time.Time); ok {
+						value = timeValue.Format(c.TimeFormat)
+					}
+				}
+				if value == nil {
+					row[i] = ""
+				} else {
+					row[i] = fmt.Sprintf("%v", value)
+				}
 			}
 		}
 
 		writeRow := true
-		if c.rowPreProcessor != nil {
-			writeRow, row = c.rowPreProcessor(row, columnNames)
+		if c.rowPostProcessor != nil {
+			writeRow, row = c.rowPostProcessor(row, columns)
 		}
 		if writeRow {
 			err = csvWriter.Write(row)
@@ -178,10 +187,10 @@ func (c Converter) Write(writer io.Writer) error {
 	return err
 }
 
-// New will return a Converter which will write your CSV however you like
-// but will allow you to set a bunch of non-default behaivour like overriding
+// NewConverter will return a Converter which will write your CSV however you like
+// but will allow you to set a bunch of non-default behaviour like overriding
 // headers or injecting a pre-processing step into your conversion
-func New(rows *sql.Rows) *Converter {
+func NewConverter(rows *sql.Rows) *Converter {
 	return &Converter{
 		rows:         rows,
 		WriteHeaders: true,

@@ -3,6 +3,9 @@ package sql2csv
 import (
 	"bytes"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -202,3 +205,165 @@ func assertCsvMatch(t *testing.T, expected string, actual string) {
 		t.Errorf("Expected CSV:\n\n%v\n Got CSV:\n\n%v\n", expected, actual)
 	}
 }
+
+type failWriter struct {
+	failOnCall int
+	calls      int
+}
+
+func (w *failWriter) Write(p []byte) (int, error) {
+	w.calls++
+	if w.failOnCall == 0 || w.calls >= w.failOnCall {
+		return 0, os.ErrInvalid
+	}
+	return len(p), nil
+}
+
+func TestUniqueIdentifier_ValidAndInvalid(t *testing.T) {
+	db := setupDatabase(t)
+	exec(t, db, "CREATE|uuids|id=UNIQUEIDENTIFIER")
+
+	rawUUID := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef}
+	exec(t, db, "INSERT|uuids|id=?", rawUUID)
+
+	rows, err := db.Query("SELECT|uuids|id|")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv := NewConverter(rows)
+	actual := conv.String()
+	expected := "id\n01234567-89ab-cdef-0123-456789abcdef\n"
+	if actual != expected {
+		t.Fatalf("expected UUID string %q, got %q", expected, actual)
+	}
+
+	// Invalid UUID (wrong byte length)
+	exec(t, db, "WIPE")
+	exec(t, db, "CREATE|bad_uuids|id=UNIQUEIDENTIFIER")
+	exec(t, db, "INSERT|bad_uuids|id=?", []byte{1, 2, 3})
+
+	badRows, err := db.Query("SELECT|bad_uuids|id|")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badConv := NewConverter(badRows)
+	var buf bytes.Buffer
+	if err := badConv.Write(&buf); err == nil {
+		t.Fatal("expected error with invalid UUID bytes")
+	}
+
+	// String() on bad converter returns empty string
+	badRows2, _ := db.Query("SELECT|bad_uuids|id|")
+	badConv2 := NewConverter(badRows2)
+	if str := badConv2.String(); str != "" {
+		t.Fatalf("expected empty string on error, got %q", str)
+	}
+
+	// WriteFile on bad converter hits _ = f.Close(); return err
+	tmpFile := os.TempDir() + "/bad_uuid_test.csv"
+	badRows3, _ := db.Query("SELECT|bad_uuids|id|")
+	badConv3 := NewConverter(badRows3)
+	if err := badConv3.WriteFile(tmpFile); err == nil {
+		t.Fatal("expected error in WriteFile with bad UUID")
+	}
+	_ = os.Remove(tmpFile)
+}
+
+func TestWriteErrors(t *testing.T) {
+	// WriteFile invalid path
+	conv := getConverter(t)
+	if err := conv.WriteFile("/nonexistent_dir/bad/file.csv"); err == nil {
+		t.Fatal("expected error with invalid file path")
+	}
+
+	// Closed rows fails on ColumnTypes
+	db := setupDatabase(t)
+	rows, err := db.Query("SELECT|people|name|")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = rows.Close()
+	closedConv := NewConverter(rows)
+	var buf bytes.Buffer
+	if err := closedConv.Write(&buf); err == nil {
+		t.Fatal("expected error on closed rows")
+	}
+
+	// Write headers failure (exceed bufio.Writer 4096 byte buffer so it flushes to writer)
+	rowsH, _ := db.Query("SELECT|people|name|")
+	convH := NewConverter(rowsH)
+	convH.Headers = []string{strings.Repeat("x", 5000)}
+	if err := convH.Write(&failWriter{failOnCall: 1}); err == nil {
+		t.Fatal("expected error on header write failure")
+	}
+
+	// Write row failure
+	rowsR, _ := db.Query("SELECT|people|name|")
+	convR := NewConverter(rowsR)
+	convR.SetRowPostProcessor(func(rows []string, colTypes []*sql.ColumnType) (bool, []string) {
+		return true, []string{strings.Repeat("y", 5000)}
+	})
+	if err := convR.Write(&failWriter{failOnCall: 1}); err == nil {
+		t.Fatal("expected error on row write failure")
+	}
+
+	// Scan failure
+	scanDb, err := sql.Open("failScanDriver", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scanDb.Close()
+	scanRows, err := scanDb.Query("SELECT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanConv := NewConverter(scanRows)
+	var scanBuf bytes.Buffer
+	if err := scanConv.Write(&scanBuf); err == nil {
+		t.Fatal("expected error on rows.Scan failure")
+	}
+}
+
+func init() {
+	sql.Register("failScanDriver", failScanDriver{})
+}
+
+type failScanDriver struct{}
+
+func (failScanDriver) Open(name string) (driver.Conn, error) {
+	return failScanConn{}, nil
+}
+
+type failScanConn struct{}
+
+func (failScanConn) Prepare(query string) (driver.Stmt, error) {
+	return nil, errors.New("not implemented")
+}
+func (failScanConn) Close() error { return nil }
+func (failScanConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("not implemented")
+}
+func (failScanConn) Query(query string, args []driver.Value) (driver.Rows, error) {
+	return &failScanRows{}, nil
+}
+
+type failScanRows struct {
+	nextCalled bool
+}
+
+func (r *failScanRows) Columns() []string { return []string{"col"} }
+func (r *failScanRows) Close() error      { return nil }
+func (r *failScanRows) NextRow() error {
+	if r.nextCalled {
+		return io.EOF
+	}
+	r.nextCalled = true
+	return nil
+}
+func (r *failScanRows) Next(dest []driver.Value) error {
+	return r.NextRow()
+}
+func (r *failScanRows) ScanColumn(scanCtx driver.ScanContext, index int, dest any) error {
+	return errors.New("forced scan error")
+}
+

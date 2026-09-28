@@ -602,12 +602,14 @@ func (s *fakeStmt) Query(args []driver.Value) (driver.Rows, error) {
 	defer t.mu.Unlock()
 
 	colIdx := make(map[string]int) // select column name -> column index in table
-	for _, name := range s.colName {
+	colTypes := make([]string, len(s.colName))
+	for i, name := range s.colName {
 		idx := t.columnIndex(name)
 		if idx == -1 {
 			return nil, fmt.Errorf("fakedb: unknown column name %q", name)
 		}
 		colIdx[name] = idx
+		colTypes[i] = t.coltype[idx]
 	}
 
 	mrows := []*row{}
@@ -638,10 +640,11 @@ rows:
 	}
 
 	cursor := &rowsCursor{
-		pos:    -1,
-		rows:   mrows,
-		cols:   s.colName,
-		errPos: -1,
+		pos:     -1,
+		rows:    mrows,
+		cols:    s.colName,
+		colType: colTypes,
+		errPos:  -1,
 	}
 	return cursor, nil
 }
@@ -661,10 +664,11 @@ func (tx *fakeTx) Rollback() error {
 }
 
 type rowsCursor struct {
-	cols   []string
-	pos    int
-	rows   []*row
-	closed bool
+	cols    []string
+	colType []string
+	pos     int
+	rows    []*row
+	closed  bool
 
 	// errPos and err are for making Next return early with error.
 	errPos int
@@ -674,6 +678,13 @@ type rowsCursor struct {
 	// the original slice's first byte address.  we clone them
 	// just so we're able to corrupt them on close.
 	bytesClone map[*byte][]byte
+}
+
+func (rc *rowsCursor) ColumnTypeDatabaseTypeName(index int) string {
+	if index >= 0 && index < len(rc.colType) {
+		return rc.colType[index]
+	}
+	return ""
 }
 
 func (rc *rowsCursor) Close() error {
@@ -772,7 +783,7 @@ func converterForType(typ string) driver.ValueConverter {
 	case "nullfloat64":
 		// TODO(coopernurse): add type-specific converter
 		return driver.Null{Converter: driver.DefaultParameterConverter}
-	case "datetime":
+	case "datetime", "UNIQUEIDENTIFIER":
 		return driver.DefaultParameterConverter
 	}
 	panic("invalid fakedb column type of " + typ)

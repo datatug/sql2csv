@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 )
 
@@ -30,11 +29,11 @@ var _ = log.Printf
 // syntantically different and simpler than SQL.  The syntax is as
 // follows:
 //
-//   WIPE
-//   CREATE|<tablename>|<col>=<type>,<col>=<type>,...
-//     where types are: "string", [u]int{8,16,32,64}, "bool"
-//   INSERT|<tablename>|col=val,col2=val2,col3=?
-//   SELECT|<tablename>|projectcol1,projectcol2|filtercol=?,filtercol2=?
+//	WIPE
+//	CREATE|<tablename>|<col>=<type>,<col>=<type>,...
+//	  where types are: "string", [u]int{8,16,32,64}, "bool"
+//	INSERT|<tablename>|col=val,col2=val2,col3=?
+//	SELECT|<tablename>|projectcol1,projectcol2|filtercol=?,filtercol2=?
 //
 // When opening a fakeDriver's database, it starts empty with no
 // tables.  All tables and data are stored in memory only.
@@ -51,7 +50,6 @@ type fakeDB struct {
 	name string
 
 	mu      sync.Mutex
-	free    []*fakeConn
 	tables  map[string]*table
 	badConn bool
 }
@@ -74,12 +72,6 @@ func (t *table) columnIndex(name string) int {
 
 type row struct {
 	cols []interface{} // must be same size as its table colname + coltype
-}
-
-func (r *row) clone() *row {
-	nrow := &row{cols: make([]interface{}, len(r.cols))}
-	copy(nrow.cols, r.cols)
-	return nrow
 }
 
 type fakeConn struct {
@@ -131,10 +123,11 @@ func init() {
 }
 
 // Supports dsn forms:
-//    <dbname>
-//    <dbname>;<opts>  (only currently supported option is `badConn`,
-//                      which causes driver.ErrBadConn to be returned on
-//                      every other conn.Begin())
+//
+//	<dbname>
+//	<dbname>;<opts>  (only currently supported option is `badConn`,
+//	                  which causes driver.ErrBadConn to be returned on
+//	                  every other conn.Begin())
 func (d *fakeDriver) Open(dsn string) (driver.Conn, error) {
 	parts := strings.Split(dsn, ";")
 	if len(parts) < 1 {
@@ -243,37 +236,9 @@ func (c *fakeConn) Begin() (driver.Tx, error) {
 	return c.currTx, nil
 }
 
-var hookPostCloseConn struct {
-	sync.Mutex
-	fn func(*fakeConn, error)
-}
-
-func setHookpostCloseConn(fn func(*fakeConn, error)) {
-	hookPostCloseConn.Lock()
-	defer hookPostCloseConn.Unlock()
-	hookPostCloseConn.fn = fn
-}
-
-var testStrictClose *testing.T
-
-// setStrictFakeConnClose sets the t to Errorf on when fakeConn.Close
-// fails to close. If nil, the check is disabled.
-func setStrictFakeConnClose(t *testing.T) {
-	testStrictClose = t
-}
-
 func (c *fakeConn) Close() (err error) {
 	drv := fdriver.(*fakeDriver)
 	defer func() {
-		if err != nil && testStrictClose != nil {
-			testStrictClose.Errorf("failed to close a test fakeConn: %v", err)
-		}
-		hookPostCloseConn.Lock()
-		fn := hookPostCloseConn.fn
-		hookPostCloseConn.Unlock()
-		if fn != nil {
-			fn(c, err)
-		}
 		if err == nil {
 			drv.mu.Lock()
 			drv.closeCount++
@@ -334,7 +299,8 @@ func errf(msg string, args ...interface{}) error {
 
 // parts are table|selectCol1,selectCol2|whereCol=?,whereCol2=?
 // (note that where columns must always contain ? marks,
-//  just a limitation for fakedb)
+//
+//	just a limitation for fakedb)
 func (c *fakeConn) prepareSelect(stmt *fakeStmt, parts []string) (driver.Stmt, error) {
 	if len(parts) != 3 {
 		_ = stmt.Close()
@@ -743,7 +709,6 @@ func (rc *rowsCursor) Next(dest []driver.Value) error {
 // This could be surprising behavior to retroactively apply to
 // driver.String now that Go1 is out, but this is convenient for
 // our TestPointerParamsAndScans.
-//
 type fakeDriverString struct{}
 
 func (fakeDriverString) ConvertValue(v interface{}) (driver.Value, error) {

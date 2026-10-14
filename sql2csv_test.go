@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
@@ -26,7 +25,7 @@ func TestWriteFile(t *testing.T) {
 			t.Fatalf("error in WriteCsvToFile: %v", err)
 		}
 
-		content, err := ioutil.ReadFile(testCsvFileName)
+		content, err := os.ReadFile(testCsvFileName)
 		if err != nil {
 			t.Fatalf("error reading %v: %v", testCsvFileName, err)
 		}
@@ -211,7 +210,7 @@ func exec(t testing.TB, db *sql.DB, query string, args ...interface{}) {
 
 func assertCsvMatch(t *testing.T, expected string, actual string) {
 	t.Helper()
-	actual = strings.Replace(actual, " +0000 GMT", " +0000 UTC", -1) // TODO: Fix it: https://github.com/datatug/sql2csv/issues/1
+	actual = strings.ReplaceAll(actual, " +0000 GMT", " +0000 UTC") // TODO: Fix it: https://github.com/datatug/sql2csv/issues/1
 	if actual != expected {
 		t.Errorf("Expected CSV:\n\n%v\n Got CSV:\n\n%v\n", expected, actual)
 	}
@@ -325,7 +324,7 @@ func TestWriteErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer scanDb.Close()
+	defer func() { _ = scanDb.Close() }()
 	scanRows, err := scanDb.Query("SELECT")
 	if err != nil {
 		t.Fatal(err)

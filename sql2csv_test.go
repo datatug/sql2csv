@@ -18,8 +18,9 @@ func init() {
 }
 
 func TestWriteFile(t *testing.T) {
+	t.Parallel()
 	checkQueryAgainstResult(t, func(rows *sql.Rows) string {
-		testCsvFileName := os.TempDir() + "/github.com-datatug-sql2csv-test.csv"
+		testCsvFileName := t.TempDir() + "/github.com-datatug-sql2csv-test.csv"
 		err := WriteFile(testCsvFileName, rows)
 		if err != nil {
 			t.Fatalf("error in WriteCsvToFile: %v", err)
@@ -35,6 +36,7 @@ func TestWriteFile(t *testing.T) {
 }
 
 func TestWrite(t *testing.T) {
+	t.Parallel()
 	checkQueryAgainstResult(t, func(rows *sql.Rows) string {
 		buffer := &bytes.Buffer{}
 
@@ -48,6 +50,7 @@ func TestWrite(t *testing.T) {
 }
 
 func TestWriteString(t *testing.T) {
+	t.Parallel()
 	checkQueryAgainstResult(t, func(rows *sql.Rows) string {
 
 		csv, err := WriteString(rows)
@@ -60,6 +63,7 @@ func TestWriteString(t *testing.T) {
 }
 
 func TestWriteHeaders(t *testing.T) {
+	t.Parallel()
 	converter := getConverter(t)
 
 	converter.WriteHeaders = false
@@ -71,6 +75,7 @@ func TestWriteHeaders(t *testing.T) {
 }
 
 func TestSetHeaders(t *testing.T) {
+	t.Parallel()
 	converter := getConverter(t)
 
 	converter.Headers = []string{"Name", "Age", "Birthday"}
@@ -82,6 +87,7 @@ func TestSetHeaders(t *testing.T) {
 }
 
 func TestSetRowPostProcessorModifyingRows(t *testing.T) {
+	t.Parallel()
 	converter := getConverter(t)
 
 	converter.SetRowPostProcessor(func(rows []string, columnTypes []*sql.ColumnType) (bool, []string) {
@@ -95,6 +101,7 @@ func TestSetRowPostProcessorModifyingRows(t *testing.T) {
 }
 
 func TestSetRowPostProcessorOmittingRows(t *testing.T) {
+	t.Parallel()
 	converter := getConverter(t)
 
 	converter.SetRowPostProcessor(func(rows []string, columnTypes []*sql.ColumnType) (bool, []string) {
@@ -108,6 +115,7 @@ func TestSetRowPostProcessorOmittingRows(t *testing.T) {
 }
 
 func TestSetTimeFormat(t *testing.T) {
+	t.Parallel()
 	converter := getConverter(t)
 
 	// Kitchen: 3:04PM
@@ -120,6 +128,7 @@ func TestSetTimeFormat(t *testing.T) {
 }
 
 func TestConvertingNilValueShouldReturnEmptyString(t *testing.T) {
+	t.Parallel()
 	converter := NewConverter(getTestRowsByQuery(t, "SELECT|people|name,nickname,age|"))
 
 	expected := "name,nickname,age\nAlice,,1\n"
@@ -129,6 +138,7 @@ func TestConvertingNilValueShouldReturnEmptyString(t *testing.T) {
 }
 
 func TestAlternateDelimiter(t *testing.T) {
+	t.Parallel()
 	converter := getConverter(t)
 
 	converter.Delimiter = '|'
@@ -140,6 +150,7 @@ func TestAlternateDelimiter(t *testing.T) {
 }
 
 func TestMissingDelimiter(t *testing.T) {
+	t.Parallel()
 	converter := getConverter(t)
 
 	var delimiter rune
@@ -181,7 +192,7 @@ func getConverter(t *testing.T) *Converter {
 }
 
 func setupDatabase(t *testing.T) *sql.DB {
-	db, err := sql.Open("test", "foo")
+	db, err := sql.Open("test", t.Name())
 	if err != nil {
 		t.Fatalf("Error opening testdb %v", err)
 	}
@@ -220,6 +231,7 @@ func (w *failWriter) Write(p []byte) (int, error) {
 }
 
 func TestUniqueIdentifier_ValidAndInvalid(t *testing.T) {
+	t.Parallel()
 	db := setupDatabase(t)
 	exec(t, db, "CREATE|uuids|id=UNIQUEIDENTIFIER")
 
@@ -260,7 +272,7 @@ func TestUniqueIdentifier_ValidAndInvalid(t *testing.T) {
 	}
 
 	// WriteFile on bad converter hits _ = f.Close(); return err
-	tmpFile := os.TempDir() + "/bad_uuid_test.csv"
+	tmpFile := t.TempDir() + "/bad_uuid_test.csv"
 	badRows3, _ := db.Query("SELECT|bad_uuids|id|")
 	badConv3 := NewConverter(badRows3)
 	if err := badConv3.WriteFile(tmpFile); err == nil {
@@ -270,6 +282,7 @@ func TestUniqueIdentifier_ValidAndInvalid(t *testing.T) {
 }
 
 func TestWriteErrors(t *testing.T) {
+	t.Parallel()
 	// WriteFile invalid path
 	conv := getConverter(t)
 	if err := conv.WriteFile("/nonexistent_dir/bad/file.csv"); err == nil {
@@ -366,4 +379,3 @@ func (r *failScanRows) Next(dest []driver.Value) error {
 func (r *failScanRows) ScanColumn(scanCtx driver.ScanContext, index int, dest any) error {
 	return errors.New("forced scan error")
 }
-
